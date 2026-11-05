@@ -1,7 +1,11 @@
+
 from flask import Flask, render_template, request, jsonify
 from database import get_db_connection, create_table
 
 app = Flask(__name__)
+
+# Create database table when application starts
+create_table()
 
 
 # Display home page
@@ -157,7 +161,6 @@ def delete_task(task_id):
         connection.close()
 
 
-# Run Flask application
+# Run Flask application locally
 if __name__ == "__main__":
-    create_table()
     app.run(debug=True)
