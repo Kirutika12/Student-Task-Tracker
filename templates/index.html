@@ -1,0 +1,485 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Task Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <div class="container">
+
+        <header>
+            <h1>Student Task Tracker</h1>
+            <p>Organize your tasks. Achieve your goals.</p>
+        </header>
+
+        <!-- Dashboard Statistics -->
+        <section class="stats">
+
+            <div class="stat-card">
+                <h3>Total Tasks</h3>
+                <p id="total">0</p>
+            </div>
+
+            <div class="stat-card">
+                <h3>Completed</h3>
+                <p id="completed">0</p>
+            </div>
+
+            <div class="stat-card">
+                <h3>Pending</h3>
+                <p id="pending">0</p>
+            </div>
+
+        </section>
+
+        <!-- Add Task Form -->
+        <section class="task-form">
+
+            <h2>Add New Task</h2>
+
+            <form id="taskForm">
+
+                <input
+                    type="text"
+                    id="title"
+                    placeholder="Enter task title"
+                    required
+                >
+
+                <textarea
+                    id="description"
+                    placeholder="Enter task description"
+                ></textarea>
+
+                <select id="priority">
+                    <option value="High">High Priority</option>
+                    <option value="Medium" selected>Medium Priority</option>
+                    <option value="Low">Low Priority</option>
+                </select>
+
+                <button type="submit">Add Task</button>
+
+            </form>
+
+        </section>
+
+        <!-- Task List -->
+        <section class="task-section">
+
+            <h2>My Tasks</h2>
+
+            <input
+                type="text"
+                id="searchInput"
+                placeholder="Search tasks by title or description..."
+            >
+
+            <div class="filter-buttons">
+
+                <button type="button" class="filter-btn active"
+                    onclick="setFilter('all')">
+                    All
+                </button>
+
+                <button type="button" class="filter-btn"
+                    onclick="setFilter('completed')">
+                    Completed
+                </button>
+
+                <button type="button" class="filter-btn"
+                    onclick="setFilter('pending')">
+                    Pending
+                </button>
+
+            </div>
+
+            <div id="taskList"></div>
+
+        </section>
+
+    </div>
+
+    <script>
+
+        let currentFilter = "all";
+
+        // Change task filter
+        function setFilter(filter) {
+
+            currentFilter = filter;
+
+            document.querySelectorAll(".filter-btn").forEach(button => {
+                button.classList.remove("active");
+            });
+
+            document.querySelector(
+                `.filter-btn[onclick="setFilter('${filter}')"]`
+            ).classList.add("active");
+
+            loadTasks();
+        }
+
+
+        // Load and display tasks
+        async function loadTasks() {
+
+            try {
+
+                const response = await fetch("/api/tasks");
+
+                if (!response.ok) {
+                    throw new Error("Unable to load tasks");
+                }
+
+                const tasks = await response.json();
+
+                const taskList = document.getElementById("taskList");
+
+                taskList.innerHTML = "";
+
+
+                // Dashboard statistics
+                const completed = tasks.filter(
+                    task => task.completed
+                ).length;
+
+                const pending = tasks.length - completed;
+
+                document.getElementById("total").textContent = tasks.length;
+                document.getElementById("completed").textContent = completed;
+                document.getElementById("pending").textContent = pending;
+
+
+                // Status filter
+                let filteredTasks = tasks;
+
+                if (currentFilter === "completed") {
+                    filteredTasks = tasks.filter(task => task.completed);
+                } else if (currentFilter === "pending") {
+                    filteredTasks = tasks.filter(task => !task.completed);
+                }
+
+
+                // Search filter
+                const searchText = document.getElementById("searchInput")
+                    .value.toLowerCase().trim();
+
+                filteredTasks = filteredTasks.filter(task => {
+
+                    const title = (task.title || "").toLowerCase();
+                    const description = (task.description || "").toLowerCase();
+
+                    return title.includes(searchText) ||
+                           description.includes(searchText);
+                });
+
+
+                // Empty state
+                if (filteredTasks.length === 0) {
+
+                    taskList.innerHTML = `
+                        <div class="empty-state">
+                            <h3>No tasks found!</h3>
+                            <p>Try another search or add a new task.</p>
+                        </div>
+                    `;
+
+                    return;
+                }
+
+
+                // Display tasks
+                filteredTasks.forEach(task => {
+
+                    const div = document.createElement("div");
+                    div.className = "task-card";
+
+                    const title = document.createElement("h3");
+                    title.textContent = task.title;
+
+                    const description = document.createElement("p");
+                    description.textContent = task.description || "";
+
+
+                    // Display task priority
+                    const priority = document.createElement("span");
+
+                    const priorityValue = task.priority || "Medium";
+
+                    priority.textContent = priorityValue + " Priority";
+
+                    priority.className =
+                        "priority " + priorityValue.toLowerCase();
+
+
+                    // Display task status
+                    const status = document.createElement("p");
+
+                    status.textContent = task.completed
+                        ? "Completed"
+                        : "Pending";
+
+                    status.className = task.completed
+                        ? "status completed"
+                        : "status pending";
+
+
+                    // Edit button
+                    const editButton = document.createElement("button");
+
+                    editButton.textContent = "Edit";
+
+                    editButton.onclick = () => editTask(task);
+
+
+                    // Complete / Undo button
+                    const completeButton = document.createElement("button");
+
+                    completeButton.textContent = task.completed
+                        ? "Undo"
+                        : "Complete";
+
+                    completeButton.onclick = () => updateTask(task.id);
+
+
+                    // Delete button
+                    const deleteButton = document.createElement("button");
+
+                    deleteButton.textContent = "Delete";
+
+                    deleteButton.onclick = () => deleteTask(task.id);
+
+
+                    div.append(
+                        title,
+                        description,
+                        priority,
+                        status,
+                        editButton,
+                        completeButton,
+                        deleteButton
+                    );
+
+                    taskList.appendChild(div);
+
+                });
+
+            } catch (error) {
+
+                console.error("Error:", error);
+
+                document.getElementById("taskList").textContent =
+                    "Unable to load tasks. Please refresh the page.";
+            }
+        }
+
+
+        // Add new task
+        document.getElementById("taskForm").addEventListener(
+            "submit",
+            async function(event) {
+
+                event.preventDefault();
+
+                const title = document.getElementById("title").value.trim();
+
+                const description = document.getElementById("description")
+                    .value.trim();
+
+                const priority = document.getElementById("priority").value;
+
+                if (!title) {
+                    alert("Please enter a task title.");
+                    return;
+                }
+
+                try {
+
+                    const response = await fetch("/api/tasks", {
+
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+
+                        body: JSON.stringify({
+                            title,
+                            description,
+                            priority
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error("Unable to add task");
+                    }
+
+                    this.reset();
+
+                    document.getElementById("searchInput").value = "";
+
+                    currentFilter = "all";
+
+                    document.querySelectorAll(".filter-btn").forEach(button => {
+                        button.classList.remove("active");
+                    });
+
+                    document.querySelector(
+                        '.filter-btn[onclick="setFilter(\'all\')"]'
+                    ).classList.add("active");
+
+                    await loadTasks();
+
+                } catch (error) {
+
+                    alert("Unable to add task.");
+                    console.error(error);
+                }
+            }
+        );
+
+
+        // Edit task
+        async function editTask(task) {
+
+            const newTitle = prompt("Enter new task title:", task.title);
+
+            if (newTitle === null) {
+                return;
+            }
+
+            if (!newTitle.trim()) {
+                alert("Task title cannot be empty.");
+                return;
+            }
+
+            const newDescription = prompt(
+                "Enter new task description:",
+                task.description || ""
+            );
+
+            if (newDescription === null) {
+                return;
+            }
+
+            const newPriority = prompt(
+                "Enter priority (High, Medium, Low):",
+                task.priority || "Medium"
+            );
+
+            if (newPriority === null) {
+                return;
+            }
+
+            const validPriority = ["High", "Medium", "Low"];
+
+            const priority = validPriority.find(
+                item => item.toLowerCase() === newPriority.trim().toLowerCase()
+            );
+
+            if (!priority) {
+                alert("Please enter High, Medium or Low.");
+                return;
+            }
+
+            try {
+
+                const response = await fetch(`/api/tasks/${task.id}/edit`, {
+
+                    method: "PUT",
+
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+
+                    body: JSON.stringify({
+                        title: newTitle.trim(),
+                        description: newDescription.trim(),
+                        priority
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error("Unable to edit task");
+                }
+
+                alert("Task edited successfully!");
+
+                await loadTasks();
+
+            } catch (error) {
+
+                alert("Unable to edit task.");
+                console.error(error);
+            }
+        }
+
+
+        // Update task status
+        async function updateTask(id) {
+
+            try {
+
+                const response = await fetch(`/api/tasks/${id}`, {
+                    method: "PUT"
+                });
+
+                if (!response.ok) {
+                    throw new Error("Unable to update task");
+                }
+
+                await loadTasks();
+
+            } catch (error) {
+
+                alert("Unable to update task.");
+                console.error(error);
+            }
+        }
+
+
+        // Delete task
+        async function deleteTask(id) {
+
+            if (!confirm("Are you sure you want to delete this task?")) {
+                return;
+            }
+
+            try {
+
+                const response = await fetch(`/api/tasks/${id}`, {
+                    method: "DELETE"
+                });
+
+                if (!response.ok) {
+                    throw new Error("Unable to delete task");
+                }
+
+                await loadTasks();
+
+            } catch (error) {
+
+                alert("Unable to delete task.");
+                console.error(error);
+            }
+        }
+
+
+        // Search while typing
+        document.getElementById("searchInput").addEventListener(
+            "input",
+            loadTasks
+        );
+
+
+        // Load tasks when page opens
+        loadTasks();
+
+    </script>
+
+</body>
+</html>
