@@ -3,10 +3,23 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for, s
 from werkzeug.security import generate_password_hash, check_password_hash
 from database import get_db_connection, create_table
 from functools import wraps
+from dotenv import load_dotenv
 import os
 
-app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "local-development-key")
+load_dotenv()
+
+app = Flask(__name__, static_folder="public/static", static_url_path="/static")
+
+app.secret_key = os.environ.get("SECRET_KEY")
+
+if not app.secret_key:
+    raise RuntimeError("SECRET_KEY is missing. Check your .env file.")
+
+if os.environ.get("VERCEL"):
+    app.config["SESSION_COOKIE_SECURE"] = True
+
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 create_table()
 
@@ -53,7 +66,7 @@ def register():
 
         try:
             existing_user = connection.execute(
-                "SELECT id FROM users WHERE username = ?",
+                "SELECT id FROM users WHERE username = %s",
                 (username,)
             ).fetchone()
 
@@ -62,21 +75,25 @@ def register():
                 return redirect(url_for("register"))
 
             user_count = connection.execute(
-                "SELECT COUNT(*) FROM users"
-            ).fetchone()[0]
+                "SELECT COUNT(*) AS count FROM users"
+            ).fetchone()["count"]
 
             password_hash = generate_password_hash(password)
 
             cursor = connection.execute(
-                "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                """
+                INSERT INTO users (username, password_hash)
+                VALUES (%s, %s)
+                RETURNING id
+                """,
                 (username, password_hash)
             )
 
-            new_user_id = cursor.lastrowid
+            new_user_id = cursor.fetchone()["id"]
 
             if user_count == 0:
                 connection.execute(
-                    "UPDATE tasks SET user_id = ? WHERE user_id IS NULL",
+                    "UPDATE tasks SET user_id = %s WHERE user_id IS NULL",
                     (new_user_id,)
                 )
 
@@ -103,7 +120,7 @@ def login():
 
         try:
             user = connection.execute(
-                "SELECT * FROM users WHERE username = ?",
+                "SELECT * FROM users WHERE username = %s",
                 (username,)
             ).fetchone()
 
@@ -135,11 +152,15 @@ def get_tasks():
 
     try:
         tasks = connection.execute(
-            "SELECT * FROM tasks WHERE user_id = ? ORDER BY id DESC",
+            """
+            SELECT * FROM tasks
+            WHERE user_id = %s
+            ORDER BY id DESC
+            """,
             (session["user_id"],)
         ).fetchall()
 
-        return jsonify([dict(task) for task in tasks])
+        return jsonify(tasks)
 
     finally:
         connection.close()
@@ -166,7 +187,7 @@ def add_task():
         connection.execute(
             """
             INSERT INTO tasks (title, description, priority, user_id)
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s)
             """,
             (title, description, priority, session["user_id"])
         )
@@ -200,8 +221,8 @@ def edit_task(task_id):
         cursor = connection.execute(
             """
             UPDATE tasks
-            SET title = ?, description = ?, priority = ?
-            WHERE id = ? AND user_id = ?
+            SET title = %s, description = %s, priority = %s
+            WHERE id = %s AND user_id = %s
             """,
             (title, description, priority, task_id, session["user_id"])
         )
@@ -230,7 +251,7 @@ def update_task(task_id):
                 WHEN completed = 0 THEN 1
                 ELSE 0
             END
-            WHERE id = ? AND user_id = ?
+            WHERE id = %s AND user_id = %s
             """,
             (task_id, session["user_id"])
         )
@@ -253,7 +274,10 @@ def delete_task(task_id):
 
     try:
         cursor = connection.execute(
-            "DELETE FROM tasks WHERE id = ? AND user_id = ?",
+            """
+            DELETE FROM tasks
+            WHERE id = %s AND user_id = %s
+            """,
             (task_id, session["user_id"])
         )
 

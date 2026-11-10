@@ -1,53 +1,60 @@
 
-import sqlite3
+import os
+import psycopg
+from psycopg.rows import dict_row
+from dotenv import load_dotenv
 
-DATABASE = "tasks.db"
+load_dotenv()
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
 def get_db_connection():
-    connection = sqlite3.connect(DATABASE)
-    connection.row_factory = sqlite3.Row
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is missing. Check your .env file.")
+
+    connection = psycopg.connect(
+        DATABASE_URL,
+        row_factory=dict_row
+    )
+
     return connection
 
 
 def create_table():
     connection = get_db_connection()
 
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL
-        )
-    """)
-
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            description TEXT,
-            completed INTEGER DEFAULT 0,
-            priority TEXT DEFAULT 'Medium'
-        )
-    """)
-
-    columns = connection.execute(
-        "PRAGMA table_info(tasks)"
-    ).fetchall()
-
-    column_names = [column["name"] for column in columns]
-
-    if "priority" not in column_names:
+    try:
         connection.execute("""
-            ALTER TABLE tasks
-            ADD COLUMN priority TEXT DEFAULT 'Medium'
+            CREATE TABLE IF NOT EXISTS users (
+                id BIGSERIAL PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL
+            )
         """)
 
-    if "user_id" not in column_names:
         connection.execute("""
-            ALTER TABLE tasks
-            ADD COLUMN user_id INTEGER REFERENCES users(id)
+            CREATE TABLE IF NOT EXISTS tasks (
+                id BIGSERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT,
+                completed INTEGER DEFAULT 0,
+                priority TEXT DEFAULT 'Medium',
+                user_id BIGINT REFERENCES users(id)
+            )
         """)
 
-    connection.commit()
-    connection.close()
+        connection.execute("""
+            ALTER TABLE tasks
+            ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'Medium'
+        """)
+
+        connection.execute("""
+            ALTER TABLE tasks
+            ADD COLUMN IF NOT EXISTS user_id BIGINT REFERENCES users(id)
+        """)
+
+        connection.commit()
+
+    finally:
+        connection.close()
