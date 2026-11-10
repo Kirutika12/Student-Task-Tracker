@@ -1,27 +1,142 @@
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session, flash
+from werkzeug.security import generate_password_hash, check_password_hash
 from database import get_db_connection, create_table
+from functools import wraps
+import os
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "local-development-key")
 
-# Create database table when application starts
 create_table()
 
 
-# Display home page
+def login_required(function):
+    @wraps(function)
+    def wrapper(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login"))
+        return function(*args, **kwargs)
+    return wrapper
+
+
+def api_login_required(function):
+    @wraps(function)
+    def wrapper(*args, **kwargs):
+        if "user_id" not in session:
+            return jsonify({"error": "Please login first"}), 401
+        return function(*args, **kwargs)
+    return wrapper
+
+
 @app.route("/")
+@login_required
 def home():
     return render_template("index.html")
 
 
-# Get all tasks
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
+        if not username or not password:
+            flash("Please enter both username and password.")
+            return redirect(url_for("register"))
+
+        if len(password) < 6:
+            flash("Password must contain at least 6 characters.")
+            return redirect(url_for("register"))
+
+        connection = get_db_connection()
+
+        try:
+            existing_user = connection.execute(
+                "SELECT id FROM users WHERE username = ?",
+                (username,)
+            ).fetchone()
+
+            if existing_user:
+                flash("Username already exists. Please choose another.")
+                return redirect(url_for("register"))
+
+            user_count = connection.execute(
+                "SELECT COUNT(*) FROM users"
+            ).fetchone()[0]
+
+            password_hash = generate_password_hash(password)
+
+            cursor = connection.execute(
+                "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                (username, password_hash)
+            )
+
+            new_user_id = cursor.lastrowid
+
+            if user_count == 0:
+                connection.execute(
+                    "UPDATE tasks SET user_id = ? WHERE user_id IS NULL",
+                    (new_user_id,)
+                )
+
+            connection.commit()
+
+            session["user_id"] = new_user_id
+            session["username"] = username
+
+            return redirect(url_for("home"))
+
+        finally:
+            connection.close()
+
+    return render_template("register.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
+        connection = get_db_connection()
+
+        try:
+            user = connection.execute(
+                "SELECT * FROM users WHERE username = ?",
+                (username,)
+            ).fetchone()
+
+            if user and check_password_hash(user["password_hash"], password):
+                session.clear()
+                session["user_id"] = user["id"]
+                session["username"] = user["username"]
+                return redirect(url_for("home"))
+
+            flash("Invalid username or password.")
+            return redirect(url_for("login"))
+
+        finally:
+            connection.close()
+
+    return render_template("login.html")
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
 @app.route("/api/tasks", methods=["GET"])
+@api_login_required
 def get_tasks():
     connection = get_db_connection()
 
     try:
         tasks = connection.execute(
-            "SELECT * FROM tasks ORDER BY id DESC"
+            "SELECT * FROM tasks WHERE user_id = ? ORDER BY id DESC",
+            (session["user_id"],)
         ).fetchall()
 
         return jsonify([dict(task) for task in tasks])
@@ -30,8 +145,8 @@ def get_tasks():
         connection.close()
 
 
-# Add a new task
 @app.route("/api/tasks", methods=["POST"])
+@api_login_required
 def add_task():
     data = request.get_json(silent=True) or {}
 
@@ -50,24 +165,22 @@ def add_task():
     try:
         connection.execute(
             """
-            INSERT INTO tasks (title, description, priority)
-            VALUES (?, ?, ?)
+            INSERT INTO tasks (title, description, priority, user_id)
+            VALUES (?, ?, ?, ?)
             """,
-            (title, description, priority)
+            (title, description, priority, session["user_id"])
         )
 
         connection.commit()
 
-        return jsonify({
-            "message": "Task added successfully"
-        }), 201
+        return jsonify({"message": "Task added successfully"}), 201
 
     finally:
         connection.close()
 
 
-# Edit task details
 @app.route("/api/tasks/<int:task_id>/edit", methods=["PUT"])
+@api_login_required
 def edit_task(task_id):
     data = request.get_json(silent=True) or {}
 
@@ -88,9 +201,9 @@ def edit_task(task_id):
             """
             UPDATE tasks
             SET title = ?, description = ?, priority = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (title, description, priority, task_id)
+            (title, description, priority, task_id, session["user_id"])
         )
 
         connection.commit()
@@ -98,16 +211,14 @@ def edit_task(task_id):
         if cursor.rowcount == 0:
             return jsonify({"error": "Task not found"}), 404
 
-        return jsonify({
-            "message": "Task edited successfully"
-        })
+        return jsonify({"message": "Task edited successfully"})
 
     finally:
         connection.close()
 
 
-# Mark task as completed or pending
 @app.route("/api/tasks/<int:task_id>", methods=["PUT"])
+@api_login_required
 def update_task(task_id):
     connection = get_db_connection()
 
@@ -119,9 +230,9 @@ def update_task(task_id):
                 WHEN completed = 0 THEN 1
                 ELSE 0
             END
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (task_id,)
+            (task_id, session["user_id"])
         )
 
         connection.commit()
@@ -129,23 +240,21 @@ def update_task(task_id):
         if cursor.rowcount == 0:
             return jsonify({"error": "Task not found"}), 404
 
-        return jsonify({
-            "message": "Task status updated successfully"
-        })
+        return jsonify({"message": "Task status updated successfully"})
 
     finally:
         connection.close()
 
 
-# Delete a task
 @app.route("/api/tasks/<int:task_id>", methods=["DELETE"])
+@api_login_required
 def delete_task(task_id):
     connection = get_db_connection()
 
     try:
         cursor = connection.execute(
-            "DELETE FROM tasks WHERE id = ?",
-            (task_id,)
+            "DELETE FROM tasks WHERE id = ? AND user_id = ?",
+            (task_id, session["user_id"])
         )
 
         connection.commit()
@@ -153,14 +262,11 @@ def delete_task(task_id):
         if cursor.rowcount == 0:
             return jsonify({"error": "Task not found"}), 404
 
-        return jsonify({
-            "message": "Task deleted successfully"
-        })
+        return jsonify({"message": "Task deleted successfully"})
 
     finally:
         connection.close()
 
 
-# Run Flask application locally
 if __name__ == "__main__":
     app.run(debug=True)

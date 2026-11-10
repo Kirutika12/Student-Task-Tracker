@@ -1,0 +1,53 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Student Task Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <h1>Student Task Tracker</h1>
+            <p>Create your personal account</p>
+        </header>
+
+        <div class="task-form">
+            <h2>Register</h2>
+
+            {% with messages = get_flashed_messages() %}
+                {% for message in messages %}
+                    <p>{{ message }}</p>
+                {% endfor %}
+            {% endwith %}
+
+            <form method="POST" action="{{ url_for('register') }}">
+                <input
+                    type="text"
+                    name="username"
+                    placeholder="Choose a username"
+                    required
+                >
+
+                <input
+                    type="password"
+                    name="password"
+                    placeholder="Choose a password (minimum 6 characters)"
+                    minlength="6"
+                    required
+                >
+
+                <button type="submit">Create Account</button>
+            </form>
+
+            <p>Already have an account?
+                <a href="{{ url_for('login') }}">Login here</a>
+            </p>
+        </div>
+    </div>
+
+</body>
+</html>

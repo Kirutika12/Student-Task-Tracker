@@ -14,6 +14,14 @@
         <header>
             <h1>Student Task Tracker</h1>
             <p>Organize your tasks. Achieve your goals.</p>
+
+            <div class="user-info">
+                <span>Welcome, {{ session['username'] }}!</span>
+
+                <form method="POST" action="{{ url_for('logout') }}">
+                    <button type="submit">Logout</button>
+                </form>
+            </div>
         </header>
 
         <!-- Dashboard Statistics -->

@@ -1,3 +1,4 @@
+
 import sqlite3
 
 DATABASE = "tasks.db"
@@ -11,6 +12,14 @@ def get_db_connection():
 
 def create_table():
     connection = get_db_connection()
+
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL
+        )
+    """)
 
     connection.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
@@ -32,6 +41,12 @@ def create_table():
         connection.execute("""
             ALTER TABLE tasks
             ADD COLUMN priority TEXT DEFAULT 'Medium'
+        """)
+
+    if "user_id" not in column_names:
+        connection.execute("""
+            ALTER TABLE tasks
+            ADD COLUMN user_id INTEGER REFERENCES users(id)
         """)
 
     connection.commit()
