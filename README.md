@@ -103,6 +103,4 @@ The main objective of this project is to help students manage their academic act
 
 **Kirutika K R**
 
----
 
-⭐ If you find this project useful, feel free to explore the repository!
